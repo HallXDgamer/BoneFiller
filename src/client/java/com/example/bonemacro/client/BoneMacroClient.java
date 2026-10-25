@@ -29,9 +29,9 @@ public class BoneMacroClient implements ClientModInitializer {
     private static final String CATEGORY_NAME   = "mob drops";   // lowercase, contains match
     private static final String BUY_MORE_NAME   = "buy more";
     private static final String CONFIRM_NAME    = "confirm";     // "" = skip
-    private static final int    BUY_MORE_CLICKS = 1;
+    private static final int    BUY_MORE_CLICKS = 35;        // 1 click = 1 stack maana hai -> 36 stack = 1 + 35 clicks
+    private static final int    BUY_CLICK_DELAY = 1;         // Buy More clicks ke beech ticks
     private static final int    CLICK_DELAY     = 8;             // ticks (20 = 1 sec)
-    private static final int    DROP_DELAY      = 2;
     private static final int    TIMEOUT_TICKS   = 100;
     // ============================================================
 
@@ -47,7 +47,6 @@ public class BoneMacroClient implements ClientModInitializer {
     private int delay = 0;
     private int timeout = 0;
     private int buyClicksLeft = 0;
-    private int dropIdx = 9;
 
     @Override
     public void onInitializeClient() {
@@ -92,15 +91,14 @@ public class BoneMacroClient implements ClientModInitializer {
                 if (buyClicksLeft > 0) {
                     if (clickNamed(mc, s -> nameHas(s, BUY_MORE_NAME))) {
                         buyClicksLeft--;
-                        next(3);
+                        next(BUY_CLICK_DELAY);
                     } else tickTimeout(mc, "'" + BUY_MORE_NAME + "' button nahi mila.");
                 } else {
                     if (!CONFIRM_NAME.isEmpty()) {
                         clickNamed(mc, s -> nameHas(s, CONFIRM_NAME));
                     }
                     state = State.DROPPING;
-                    dropIdx = 9;
-                    next(20); // purchase hone ka wait
+                    next(10); // items inventory mein aane ka wait
                 }
             }
             case DROPPING -> {
@@ -110,14 +108,12 @@ public class BoneMacroClient implements ClientModInitializer {
                     return;
                 }
                 // player inventory: slot 9-35 main, 36-44 hotbar
-                while (dropIdx <= 44) {
-                    int idx = dropIdx++;
+                // saare bone stacks ek hi tick mein, bina delay ke drop
+                for (int idx = 9; idx <= 44; idx++) {
                     ItemStack s = mc.player.inventoryMenu.getSlot(idx).getItem();
                     if (s.is(Items.BONE)) {
                         // button 1 = poora stack drop (Ctrl+Q jaisa)
                         mc.gameMode.handleInventoryMouseClick(0, idx, 1, ClickType.THROW, mc.player);
-                        next(DROP_DELAY);
-                        return;
                     }
                 }
                 stop(mc, "Ho gaya! Saari bones drop ho gayi.");
