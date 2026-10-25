@@ -6,9 +6,7 @@
   "description": "One key shop macro: buy bones and drop them.",
   "environment": "client",
   "entrypoints": {
-    "client": [
-      "com.example.bonemacro.BoneMacroClient"
-    ]
+    "client": ["com.example.bonemacro.client.BoneMacroClient"]
   },
   "depends": {
     "fabricloader": ">=0.16.0",
