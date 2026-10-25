@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "bonemacro",
+  "version": "1.0.0",
+  "name": "Bone Macro",
+  "description": "One key shop macro: buy bones and drop them.",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.example.bonemacro.BoneMacroClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "fabric-api": "*",
+    "minecraft": "~1.21.11"
+  }
+}
