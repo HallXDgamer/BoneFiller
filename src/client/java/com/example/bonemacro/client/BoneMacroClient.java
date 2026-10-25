@@ -1,49 +1,47 @@
-package com.example.bonemacro;
+package com.example.bonemacro.client;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
-import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.option.KeyBinding;
-import net.minecraft.client.util.InputUtil;
-import net.minecraft.item.ItemStack;
-import net.minecraft.item.Items;
-import net.minecraft.screen.GenericContainerScreenHandler;
-import net.minecraft.screen.slot.SlotActionType;
-import net.minecraft.text.Text;
-import net.minecraft.util.Identifier;
+import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
+import net.minecraft.world.inventory.ChestMenu;
+import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.function.Predicate;
 
 /**
- * Ek key dabao -> /shop -> Mob Drops -> Bone -> Buy More -> Confirm -> sab bones drop.
+ * R dabao -> /shop -> Mob Drops -> Bone -> Buy More -> Confirm -> saari bones drop.
+ * K dabao -> open GUI ke saare slot ke naam chat mein print.
  *
- * R = macro start/stop
- * K = open container ke saare slots ke naam chat mein print karo (names check karne ke liye)
- *
- * Minecraft 1.21.11 + Yarn mappings (1.21.11+build.4) ke hisaab se.
+ * Minecraft 1.21.11, Mojang mappings.
  */
 public class BoneMacroClient implements ClientModInitializer {
 
     // ====== CONFIG (apne server ke GUI ke hisaab se badlo) ======
-    private static final String SHOP_COMMAND   = "shop";        // bina "/" ke
-    private static final String CATEGORY_NAME  = "mob drops";   // category item ka naam (lowercase, contains)
-    private static final String BUY_MORE_NAME  = "buy more";    // buy more button ka naam
-    private static final String CONFIRM_NAME   = "confirm";     // confirm button ka naam ("" = skip)
-    private static final int    BUY_MORE_CLICKS = 1;            // kitni baar Buy More dabana hai
-    private static final int    CLICK_DELAY    = 8;             // ticks (20 tick = 1 sec)
-    private static final int    DROP_DELAY     = 2;             // har stack drop ke beech ticks
-    private static final int    TIMEOUT_TICKS  = 100;           // itna wait, phir macro band
+    private static final String SHOP_COMMAND    = "shop";        // bina "/" ke
+    private static final String CATEGORY_NAME   = "mob drops";   // lowercase, contains match
+    private static final String BUY_MORE_NAME   = "buy more";
+    private static final String CONFIRM_NAME    = "confirm";     // "" = skip
+    private static final int    BUY_MORE_CLICKS = 1;
+    private static final int    CLICK_DELAY     = 8;             // ticks (20 = 1 sec)
+    private static final int    DROP_DELAY      = 2;
+    private static final int    TIMEOUT_TICKS   = 100;
     // ============================================================
 
     private enum State { IDLE, WAIT_SHOP, WAIT_ITEM, WAIT_BUY, DROPPING }
 
-    private static final KeyBinding.Category CATEGORY =
-            KeyBinding.Category.create(Identifier.of("bonemacro", "main"));
+    private static final KeyMapping.Category KEY_CATEGORY =
+            KeyMapping.Category.register(Identifier.fromNamespaceAndPath("bonemacro", "main"));
 
-    private KeyBinding startKey;
-    private KeyBinding debugKey;
+    private KeyMapping startKey;
+    private KeyMapping debugKey;
 
     private State state = State.IDLE;
     private int delay = 0;
@@ -53,52 +51,52 @@ public class BoneMacroClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        startKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.bonemacro.start", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_R, CATEGORY));
-        debugKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
-                "key.bonemacro.debug", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_K, CATEGORY));
+        startKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                "key.bonemacro.start", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_R, KEY_CATEGORY));
+        debugKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
+                "key.bonemacro.debug", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_K, KEY_CATEGORY));
 
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
     }
 
-    private void tick(MinecraftClient c) {
-        if (c.player == null || c.interactionManager == null) {
+    private void tick(Minecraft mc) {
+        if (mc.player == null || mc.gameMode == null) {
             state = State.IDLE;
             return;
         }
 
-        while (startKey.wasPressed()) {
-            if (state == State.IDLE) start(c);
-            else stop(c, "Macro band kiya.");
+        while (startKey.consumeClick()) {
+            if (state == State.IDLE) start(mc);
+            else stop(mc, "Macro band kiya.");
         }
-        while (debugKey.wasPressed()) dumpSlots(c);
+        while (debugKey.consumeClick()) dumpSlots(mc);
 
         if (state == State.IDLE) return;
         if (delay > 0) { delay--; return; }
 
         switch (state) {
             case WAIT_SHOP -> {
-                if (clickNamed(c, s -> nameHas(s, CATEGORY_NAME))) {
+                if (clickNamed(mc, s -> nameHas(s, CATEGORY_NAME))) {
                     state = State.WAIT_ITEM;
                     next(CLICK_DELAY);
-                } else tickTimeout(c, "Category '" + CATEGORY_NAME + "' nahi mili.");
+                } else tickTimeout(mc, "Category '" + CATEGORY_NAME + "' nahi mili.");
             }
             case WAIT_ITEM -> {
-                if (clickNamed(c, s -> s.isOf(Items.BONE))) {
+                if (clickNamed(mc, s -> s.is(Items.BONE))) {
                     state = State.WAIT_BUY;
                     buyClicksLeft = BUY_MORE_CLICKS;
                     next(CLICK_DELAY);
-                } else tickTimeout(c, "Bone item nahi mila.");
+                } else tickTimeout(mc, "Bone item nahi mila.");
             }
             case WAIT_BUY -> {
                 if (buyClicksLeft > 0) {
-                    if (clickNamed(c, s -> nameHas(s, BUY_MORE_NAME))) {
+                    if (clickNamed(mc, s -> nameHas(s, BUY_MORE_NAME))) {
                         buyClicksLeft--;
                         next(3);
-                    } else tickTimeout(c, "'" + BUY_MORE_NAME + "' button nahi mila.");
+                    } else tickTimeout(mc, "'" + BUY_MORE_NAME + "' button nahi mila.");
                 } else {
                     if (!CONFIRM_NAME.isEmpty()) {
-                        clickNamed(c, s -> nameHas(s, CONFIRM_NAME));
+                        clickNamed(mc, s -> nameHas(s, CONFIRM_NAME));
                     }
                     state = State.DROPPING;
                     dropIdx = 9;
@@ -106,39 +104,39 @@ public class BoneMacroClient implements ClientModInitializer {
                 }
             }
             case DROPPING -> {
-                if (c.currentScreen != null) {
-                    c.player.closeHandledScreen();
+                if (mc.screen != null) {
+                    mc.player.closeContainer();
                     next(5);
                     return;
                 }
                 // player inventory: slot 9-35 main, 36-44 hotbar
                 while (dropIdx <= 44) {
-                    ItemStack s = c.player.playerScreenHandler.getSlot(dropIdx).getStack();
                     int idx = dropIdx++;
-                    if (s.isOf(Items.BONE)) {
+                    ItemStack s = mc.player.inventoryMenu.getSlot(idx).getItem();
+                    if (s.is(Items.BONE)) {
                         // button 1 = poora stack drop (Ctrl+Q jaisa)
-                        c.interactionManager.clickSlot(0, idx, 1, SlotActionType.THROW, c.player);
+                        mc.gameMode.handleInventoryMouseClick(0, idx, 1, ClickType.THROW, mc.player);
                         next(DROP_DELAY);
                         return;
                     }
                 }
-                stop(c, "Ho gaya! Saari bones drop ho gayi.");
+                stop(mc, "Ho gaya! Saari bones drop ho gayi.");
             }
             default -> { }
         }
     }
 
-    private void start(MinecraftClient c) {
-        c.player.networkHandler.sendChatCommand(SHOP_COMMAND);
+    private void start(Minecraft mc) {
+        mc.player.connection.sendCommand(SHOP_COMMAND);
         state = State.WAIT_SHOP;
         delay = 15;
         timeout = 0;
-        msg(c, "Macro start...");
+        msg(mc, "Macro start...");
     }
 
-    private void stop(MinecraftClient c, String why) {
+    private void stop(Minecraft mc, String why) {
         state = State.IDLE;
-        msg(c, why);
+        msg(mc, why);
     }
 
     private void next(int d) {
@@ -146,22 +144,22 @@ public class BoneMacroClient implements ClientModInitializer {
         timeout = 0;
     }
 
-    private void tickTimeout(MinecraftClient c, String why) {
+    private void tickTimeout(Minecraft mc, String why) {
         delay = 5;
         timeout += 5;
         if (timeout >= TIMEOUT_TICKS) {
-            stop(c, "Rukna pada: " + why + " (K dabake slot names check karo)");
+            stop(mc, "Rukna pada: " + why + " (K dabake slot names check karo)");
         }
     }
 
-    /** Open chest-type GUI mein pehla slot jo match kare, uspe left click. */
-    private boolean clickNamed(MinecraftClient c, Predicate<ItemStack> match) {
-        if (!(c.player.currentScreenHandler instanceof GenericContainerScreenHandler h)) return false;
-        int size = h.getRows() * 9;
+    /** Open chest-type GUI mein pehla matching slot, uspe left click. */
+    private boolean clickNamed(Minecraft mc, Predicate<ItemStack> match) {
+        if (!(mc.player.containerMenu instanceof ChestMenu menu)) return false;
+        int size = menu.getRowCount() * 9;
         for (int i = 0; i < size; i++) {
-            ItemStack s = h.getSlot(i).getStack();
+            ItemStack s = menu.getSlot(i).getItem();
             if (!s.isEmpty() && match.test(s)) {
-                c.interactionManager.clickSlot(h.syncId, i, 0, SlotActionType.PICKUP, c.player);
+                mc.gameMode.handleInventoryMouseClick(menu.containerId, i, 0, ClickType.PICKUP, mc.player);
                 return true;
             }
         }
@@ -169,22 +167,22 @@ public class BoneMacroClient implements ClientModInitializer {
     }
 
     private static boolean nameHas(ItemStack s, String part) {
-        return s.getName().getString().toLowerCase().contains(part.toLowerCase());
+        return s.getHoverName().getString().toLowerCase().contains(part.toLowerCase());
     }
 
-    private void dumpSlots(MinecraftClient c) {
-        if (!(c.player.currentScreenHandler instanceof GenericContainerScreenHandler h)) {
-            msg(c, "Pehle koi shop GUI kholo, phir K dabao.");
+    private void dumpSlots(Minecraft mc) {
+        if (!(mc.player.containerMenu instanceof ChestMenu menu)) {
+            msg(mc, "Pehle koi shop GUI kholo, phir K dabao.");
             return;
         }
-        int size = h.getRows() * 9;
+        int size = menu.getRowCount() * 9;
         for (int i = 0; i < size; i++) {
-            ItemStack s = h.getSlot(i).getStack();
-            if (!s.isEmpty()) msg(c, "slot " + i + ": " + s.getName().getString());
+            ItemStack s = menu.getSlot(i).getItem();
+            if (!s.isEmpty()) msg(mc, "slot " + i + ": " + s.getHoverName().getString());
         }
     }
 
-    private void msg(MinecraftClient c, String text) {
-        c.player.sendMessage(Text.literal("[BoneMacro] " + text), false);
+    private void msg(Minecraft mc, String text) {
+        mc.player.displayClientMessage(Component.literal("[BoneMacro] " + text), false);
     }
 }
