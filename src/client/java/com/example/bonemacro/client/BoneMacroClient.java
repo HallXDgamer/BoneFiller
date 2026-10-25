@@ -29,13 +29,14 @@ public class BoneMacroClient implements ClientModInitializer {
     private static final String CATEGORY_NAME   = "mob drops";   // lowercase, contains match
     private static final String BUY_MORE_NAME   = "buy more";
     private static final String CONFIRM_NAME    = "confirm";     // "" = skip
-    private static final int    BUY_MORE_CLICKS = 35;        // 1 click = 1 stack maana hai -> 36 stack = 1 + 35 clicks
-    private static final int    BUY_CLICK_DELAY = 1;         // Buy More clicks ke beech ticks
+    private static final int    STACKS_TO_BUY   = 36;        // "Buy Stacks of Bone" screen mein jis button pe ye number hai
+    private static final int    STACKS_SLOT     = 26;        // backup: 36 wale bone ka slot (3rd row, last column = 26)
     private static final int    CLICK_DELAY     = 8;             // ticks (20 = 1 sec)
+    private static final boolean SHOW_MESSAGES  = false;     // true = macro ke status messages chat mein aayenge
     private static final int    TIMEOUT_TICKS   = 100;
     // ============================================================
 
-    private enum State { IDLE, WAIT_SHOP, WAIT_ITEM, WAIT_BUY, DROPPING }
+    private enum State { IDLE, WAIT_SHOP, WAIT_ITEM, WAIT_BUY, WAIT_STACKS, WAIT_CONFIRM, DROPPING }
 
     private static final KeyMapping.Category KEY_CATEGORY =
             KeyMapping.Category.register(Identifier.fromNamespaceAndPath("bonemacro", "main"));
@@ -46,7 +47,6 @@ public class BoneMacroClient implements ClientModInitializer {
     private State state = State.IDLE;
     private int delay = 0;
     private int timeout = 0;
-    private int buyClicksLeft = 0;
 
     @Override
     public void onInitializeClient() {
@@ -83,23 +83,31 @@ public class BoneMacroClient implements ClientModInitializer {
             case WAIT_ITEM -> {
                 if (clickNamed(mc, s -> s.is(Items.BONE))) {
                     state = State.WAIT_BUY;
-                    buyClicksLeft = BUY_MORE_CLICKS;
                     next(CLICK_DELAY);
                 } else tickTimeout(mc, "Bone item nahi mila.");
             }
             case WAIT_BUY -> {
-                if (buyClicksLeft > 0) {
-                    if (clickNamed(mc, s -> nameHas(s, BUY_MORE_NAME))) {
-                        buyClicksLeft--;
-                        next(BUY_CLICK_DELAY);
-                    } else tickTimeout(mc, "'" + BUY_MORE_NAME + "' button nahi mila.");
-                } else {
-                    if (!CONFIRM_NAME.isEmpty()) {
-                        clickNamed(mc, s -> nameHas(s, CONFIRM_NAME));
-                    }
-                    state = State.DROPPING;
-                    next(10); // items inventory mein aane ka wait
+                // "Buy More" ek hi baar dabana hai, isse "Buy Stacks of Bone" screen khulti hai
+                if (clickNamed(mc, s -> nameHas(s, BUY_MORE_NAME))) {
+                    state = State.WAIT_STACKS;
+                    next(CLICK_DELAY);
+                } else tickTimeout(mc, "'" + BUY_MORE_NAME + "' button nahi mila.");
+            }
+            case WAIT_STACKS -> {
+                // is screen mein bone buttons hain jinpe 1..9 aur 36 likha hai; 36 wala dabao
+                if (clickNamed(mc, s -> s.is(Items.BONE) && s.getCount() == STACKS_TO_BUY)
+                        || clickSlotIndex(mc, STACKS_SLOT, s -> s.is(Items.BONE))) {
+                    state = State.WAIT_CONFIRM;
+                    next(CLICK_DELAY);
+                } else tickTimeout(mc, STACKS_TO_BUY + " stack wala button nahi mila.");
+            }
+            case WAIT_CONFIRM -> {
+                // agar confirm screen aati hai to dabao, nahi aati to koi baat nahi
+                if (!CONFIRM_NAME.isEmpty()) {
+                    clickNamed(mc, s -> nameHas(s, CONFIRM_NAME));
                 }
+                state = State.DROPPING;
+                next(10); // items inventory mein aane ka wait
             }
             case DROPPING -> {
                 if (mc.screen != null) {
@@ -162,23 +170,40 @@ public class BoneMacroClient implements ClientModInitializer {
         return false;
     }
 
+    /** Fixed slot number pe click (agar uss slot mein match karne wala item ho). */
+    private boolean clickSlotIndex(Minecraft mc, int slot, Predicate<ItemStack> match) {
+        if (!(mc.player.containerMenu instanceof ChestMenu menu)) return false;
+        if (slot < 0 || slot >= menu.getRowCount() * 9) return false;
+        ItemStack s = menu.getSlot(slot).getItem();
+        if (s.isEmpty() || !match.test(s)) return false;
+        mc.gameMode.handleInventoryMouseClick(menu.containerId, slot, 0, ClickType.PICKUP, mc.player);
+        return true;
+    }
+
     private static boolean nameHas(ItemStack s, String part) {
         return s.getHoverName().getString().toLowerCase().contains(part.toLowerCase());
     }
 
     private void dumpSlots(Minecraft mc) {
         if (!(mc.player.containerMenu instanceof ChestMenu menu)) {
-            msg(mc, "Pehle koi shop GUI kholo, phir K dabao.");
+            debug(mc, "Pehle koi shop GUI kholo, phir K dabao.");
             return;
         }
         int size = menu.getRowCount() * 9;
         for (int i = 0; i < size; i++) {
             ItemStack s = menu.getSlot(i).getItem();
-            if (!s.isEmpty()) msg(mc, "slot " + i + ": " + s.getHoverName().getString());
+            if (!s.isEmpty()) debug(mc, "slot " + i + ": " + s.getHoverName().getString());
         }
     }
 
+    /** Status messages: sirf SHOW_MESSAGES = true hone par. */
     private void msg(Minecraft mc, String text) {
+        if (!SHOW_MESSAGES) return;
+        debug(mc, text);
+    }
+
+    /** K dabane par slot list hamesha dikhani hai, isliye ye hamesha chat mein bhejta hai. */
+    private void debug(Minecraft mc, String text) {
         mc.player.displayClientMessage(Component.literal("[BoneMacro] " + text), false);
     }
 }
