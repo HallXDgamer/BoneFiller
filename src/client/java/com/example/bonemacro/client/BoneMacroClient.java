@@ -32,11 +32,13 @@ public class BoneMacroClient implements ClientModInitializer {
     private static final int    STACKS_TO_BUY   = 36;        // "Buy Stacks of Bone" screen mein jis button pe ye number hai
     private static final int    STACKS_SLOT     = 26;        // backup: 36 wale bone ka slot (3rd row, last column = 26)
     private static final int    CLICK_DELAY     = 8;             // ticks (20 = 1 sec)
+    private static final boolean LOOP           = true;      // true = cycle baar baar chalega, R dubara dabane pe band
+    private static final int    LOOP_DELAY     = 0;         // ek cycle ke baad agle se pehle ticks (0 = bina gap)
     private static final boolean SHOW_MESSAGES  = false;     // true = macro ke status messages chat mein aayenge
     private static final int    TIMEOUT_TICKS   = 100;
     // ============================================================
 
-    private enum State { IDLE, WAIT_SHOP, WAIT_ITEM, WAIT_BUY, WAIT_STACKS, WAIT_CONFIRM, DROPPING }
+    private enum State { IDLE, WAIT_SHOP, WAIT_ITEM, WAIT_BUY, WAIT_STACKS, WAIT_CONFIRM, DROPPING, NEXT_CYCLE }
 
     private static final KeyMapping.Category KEY_CATEGORY =
             KeyMapping.Category.register(Identifier.fromNamespaceAndPath("bonemacro", "main"));
@@ -124,8 +126,14 @@ public class BoneMacroClient implements ClientModInitializer {
                         mc.gameMode.handleInventoryMouseClick(0, idx, 1, ClickType.THROW, mc.player);
                     }
                 }
-                stop(mc, "Ho gaya! Saari bones drop ho gayi.");
+                if (LOOP) {
+                    state = State.NEXT_CYCLE;
+                    next(LOOP_DELAY);
+                } else {
+                    stop(mc, "Ho gaya! Saari bones drop ho gayi.");
+                }
             }
+            case NEXT_CYCLE -> start(mc);
             default -> { }
         }
     }
