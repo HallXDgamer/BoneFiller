@@ -6,19 +6,20 @@ import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.screens.PauseScreen;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.inventory.ChestMenu;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
-import org.lwjgl.glfw.GLFW;
 
 import java.util.function.Predicate;
 
 /**
- * R dabao -> /shop -> Mob Drops -> Bone -> Buy More -> Confirm -> saari bones drop.
- * K dabao -> open GUI ke saare slot ke naam chat mein print.
+ * Key Controls menu mein khud set karo (default koi key nahi).
+ * Start/stop key dabao -> /shop -> Mob Drops -> Bone -> Buy More -> Confirm -> saari bones drop.
+ * Debug key dabao -> open GUI ke saare slot ke naam chat mein print.
  *
  * Minecraft 1.21.11, Mojang mappings.
  */
@@ -34,6 +35,7 @@ public class BoneMacroClient implements ClientModInitializer {
     private static final int    CLICK_DELAY     = 8;             // ticks (20 = 1 sec)
     private static final boolean LOOP           = true;      // true = cycle baar baar chalega, R dubara dabane pe band
     private static final int    LOOP_DELAY     = 0;         // ek cycle ke baad agle se pehle ticks (0 = bina gap)
+    private static final int    ESC_STOP_TICKS = 5;         // shop GUI itne ticks band rahe to maana Esc dabaya -> macro stop
     private static final boolean SHOW_MESSAGES  = false;     // true = macro ke status messages chat mein aayenge
     private static final int    TIMEOUT_TICKS   = 100;
     // ============================================================
@@ -49,13 +51,16 @@ public class BoneMacroClient implements ClientModInitializer {
     private State state = State.IDLE;
     private int delay = 0;
     private int timeout = 0;
+    private boolean sawScreen = false;
+    private Boolean savedPauseOnLostFocus = null; // original setting, macro band hone par wapas set hoti hai
+    private int noScreenTicks = 0;
 
     @Override
     public void onInitializeClient() {
         startKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.bonemacro.start", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_R, KEY_CATEGORY));
+                "key.bonemacro.start", InputConstants.Type.KEYSYM, InputConstants.UNKNOWN.getValue(), KEY_CATEGORY));
         debugKey = KeyBindingHelper.registerKeyBinding(new KeyMapping(
-                "key.bonemacro.debug", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_K, KEY_CATEGORY));
+                "key.bonemacro.debug", InputConstants.Type.KEYSYM, InputConstants.UNKNOWN.getValue(), KEY_CATEGORY));
 
         ClientTickEvents.END_CLIENT_TICK.register(this::tick);
     }
@@ -63,6 +68,7 @@ public class BoneMacroClient implements ClientModInitializer {
     private void tick(Minecraft mc) {
         if (mc.player == null || mc.gameMode == null) {
             state = State.IDLE;
+            restorePause(mc);
             return;
         }
 
@@ -73,6 +79,33 @@ public class BoneMacroClient implements ClientModInitializer {
         while (debugKey.consumeClick()) dumpSlots(mc);
 
         if (state == State.IDLE) return;
+
+        // Esc dabane par macro band: pause menu khule, ya shop GUI beech mein band ho jaye
+        if (mc.screen instanceof PauseScreen) {
+            if (mc.isWindowActive()) {
+                stop(mc, "Esc dabaya, macro band.");
+                return;
+            }
+            // window focus mein nahi (minimize / doosri app) -> ye Esc nahi, game ne khud pause kiya, usse hata do
+            mc.setScreen(null);
+        }
+        // har tick pe dobara band rakho, taaki game kisi bhi wajah se isse wapas on na kare
+        mc.options.pauseOnLostFocus = false;
+        boolean watching = state == State.WAIT_SHOP || state == State.WAIT_ITEM
+                || state == State.WAIT_BUY || state == State.WAIT_STACKS;
+        if (watching) {
+            if (mc.screen != null) {
+                sawScreen = true;
+                noScreenTicks = 0;
+            } else if (sawScreen && ++noScreenTicks >= ESC_STOP_TICKS) {
+                stop(mc, "GUI band hua (Esc), macro band.");
+                return;
+            }
+        } else {
+            sawScreen = false;
+            noScreenTicks = 0;
+        }
+
         if (delay > 0) { delay--; return; }
 
         switch (state) {
@@ -139,15 +172,30 @@ public class BoneMacroClient implements ClientModInitializer {
     }
 
     private void start(Minecraft mc) {
+        // window minimize / doosri app kholne par game pause na ho
+        if (savedPauseOnLostFocus == null) {
+            savedPauseOnLostFocus = mc.options.pauseOnLostFocus;
+            mc.options.pauseOnLostFocus = false;
+        }
         mc.player.connection.sendCommand(SHOP_COMMAND);
         state = State.WAIT_SHOP;
         delay = 15;
         timeout = 0;
+        sawScreen = false;
+        noScreenTicks = 0;
         msg(mc, "Macro start...");
+    }
+
+    private void restorePause(Minecraft mc) {
+        if (savedPauseOnLostFocus != null) {
+            mc.options.pauseOnLostFocus = savedPauseOnLostFocus;
+            savedPauseOnLostFocus = null;
+        }
     }
 
     private void stop(Minecraft mc, String why) {
         state = State.IDLE;
+        restorePause(mc);
         msg(mc, why);
     }
 
